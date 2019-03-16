@@ -1,7 +1,7 @@
 Core Developer Guidelines
 =========================
 These guidelines apply to the core developers, i.e., those with write
-(push) access to the [cloudmarker/cloudmarker](cmrepo) repo.
+(push) access to the [cloudmarker/cloudmarker][repo] repo.
 
 [repo]: https://github.com/cloudmarker/cloudmarker
 
