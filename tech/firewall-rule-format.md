@@ -486,7 +486,7 @@ potentially weak:
   - Destination port range: We need to understand how they look in the
     JSON data when multiple ranges are defined. If a range includes
     critical ports like 22 (SSH), 3389 (RDP), etc. then we want to check
-    if they are allowed to the all source address ranges.
+    if they are allowed to all source address ranges.
 
 
 ### Azure
