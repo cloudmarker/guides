@@ -562,6 +562,21 @@ connect to multiple destination port ranges:
       "selfLink": "https://www.googleapis.com/compute/v1/projects/strong-augury-224506/global/firewalls/allow-multi-range"
     }
 
+**Note:** One can argue that this GCP firewall rule is not exactly
+similar to the Azure security rule because the Azure security rule has
+`protocol` as `*` whereas this GCP firewall rule has two different sets
+of port ranges for `tcp` and `udp`. That's true, however, we are not
+trying to understand how the protocol appears in a firewall rule. We are
+only trying to understand the various formats of source address ranges
+and destination port ranges in this section. We will discuss the
+protocol format in a different section.
+
+For the record, the reason why the protocol is `*` in Azure is that
+while creating a security rule in Azure portal, the options for protocol
+is "Any", "TCP", and "UDP", with "Any" as the default. There is no such
+"Any" option while creating GCP firewall rule. GCP Console requires us
+to enter port ranges separately for TCP and UDP protocols.
+
 
 Any Source
 ----------
