@@ -8,9 +8,6 @@ some analysis of how they may or may not be used in the context of this
 project. The final objective of this analysis is to create a common
 record format for firewall rules from both cloud platforms.
 
-Note that this document is work in progress. Different types of firewall
-rules will be captured in this document gradually in future.
-
 
 Contents
 --------
@@ -41,6 +38,10 @@ Contents
     * [`ports` missing](#ports-missing)
     * [`ports` set to port range](#ports-set-to-port-range)
   * [Any Port: Conclusion](#any-port-conclusion)
+* [Any Protocol](#any-protocol)
+  * [Any Protocol: Azure](#any-protocol-azure)
+  * [Any Protocol: GCP](#any-protocol-gcp)
+  * [Any Protocol: Conclusion](#any-protocol-conclusion)
 
 
 Notation
@@ -1098,3 +1099,163 @@ In GCP, we need to consider the following cases:
 One way to simplify all these various scenarios is to use a list of
 port/port-ranges as common notation. So `*` would be normalized to
 `0-65535`. A missing `"ports"` key is also normalized to `0-65535`.
+
+
+Any Protocol
+------------
+
+### Any Protocol: Azure
+
+The following example shows the three security rules with three ports
+configured with three different protocols in the Azure portal: port 22
+(TCP), port 514 (UDP), and port 8000 (Any). Look for the different
+values for `protocol` in the rules below.
+
+    {
+      "id": "/subscriptions/a8daa361-b951-46b5-8e9d-b375f2ffe9fd/resourceGroups/rg1/providers/Microsoft.Network/networkSecurityGroups/vm1-nsg/securityRules/Port_22_TCP",
+      "protocol": "TCP",
+      "source_port_range": "*",
+      "destination_port_range": "22",
+      "source_address_prefix": "*",
+      "source_address_prefixes": [],
+      "destination_address_prefix": "*",
+      "destination_address_prefixes": [],
+      "source_port_ranges": [],
+      "destination_port_ranges": [],
+      "access": "Allow",
+      "priority": 100,
+      "direction": "Inbound",
+      "provisioning_state": "Succeeded",
+      "name": "Port_22_TCP",
+      "etag": "W/\"0a2f4f79-9b61-4eb9-9e1d-9bb0de75cb2a\""
+    },
+    {
+      "id": "/subscriptions/a8daa361-b951-46b5-8e9d-b375f2ffe9fd/resourceGroups/rg1/providers/Microsoft.Network/networkSecurityGroups/vm1-nsg/securityRules/Port_514_UDP",
+      "protocol": "UDP",
+      "source_port_range": "*",
+      "destination_port_range": "514",
+      "source_address_prefix": "*",
+      "source_address_prefixes": [],
+      "destination_address_prefix": "*",
+      "destination_address_prefixes": [],
+      "source_port_ranges": [],
+      "destination_port_ranges": [],
+      "access": "Allow",
+      "priority": 110,
+      "direction": "Inbound",
+      "provisioning_state": "Succeeded",
+      "name": "Port_514_UDP",
+      "etag": "W/\"0a2f4f79-9b61-4eb9-9e1d-9bb0de75cb2a\""
+    },
+    {
+      "id": "/subscriptions/a8daa361-b951-46b5-8e9d-b375f2ffe9fd/resourceGroups/rg1/providers/Microsoft.Network/networkSecurityGroups/vm1-nsg/securityRules/Port_8000_Any",
+      "protocol": "*",
+      "source_port_range": "*",
+      "destination_port_range": "8000",
+      "source_address_prefix": "*",
+      "source_address_prefixes": [],
+      "destination_address_prefix": "*",
+      "destination_address_prefixes": [],
+      "source_port_ranges": [],
+      "destination_port_ranges": [],
+      "access": "Allow",
+      "priority": 120,
+      "direction": "Inbound",
+      "provisioning_state": "Succeeded",
+      "name": "Port_8000_Any",
+      "etag": "W/\"0a2f4f79-9b61-4eb9-9e1d-9bb0de75cb2a\""
+    }
+
+We see that when we choose *Any* protocol in Azure portal, the
+`protocol` value appears as `*` in the JSON document for the security
+rule.
+
+
+### Any Protocol: GCP
+
+The following example shows a typical security rule where the *Specified
+protocols and ports* was set to `tcp:22,8000-8080; udp:53,514; ah; sctp`
+
+    {
+      "kind": "compute#firewall",
+      "id": "4931881785353486998",
+      "creationTimestamp": "2019-03-27T06:36:57.192-07:00",
+      "name": "allow-tcp-udp-ah-sctp",
+      "description": "",
+      "network": "https://www.googleapis.com/compute/v1/projects/strong-augury-224506/global/networks/default",
+      "priority": 1000,
+      "sourceRanges": [
+        "0.0.0.0/0"
+      ],
+      "allowed": [
+        {
+          "IPProtocol": "tcp",
+          "ports": [
+            "22",
+            "8000-8080"
+          ]
+        },
+        {
+          "IPProtocol": "udp",
+          "ports": [
+            "53",
+            "514"
+          ]
+        },
+        {
+          "IPProtocol": "ah"
+        },
+        {
+          "IPProtocol": "sctp"
+        }
+      ],
+      "direction": "INGRESS",
+      "logConfig": {
+        "enable": false
+      },
+      "disabled": false,
+      "selfLink": "https://www.googleapis.com/compute/v1/projects/strong-augury-224506/global/firewalls/allow-tcp-udp-ah-sctp"
+    }
+
+Now compare the above example with the following example which shows a
+security rule where *Allow all* was chosen for *Protocol and ports*.
+
+    {
+      "kind": "compute#firewall",
+      "id": "4098017522672387554",
+      "creationTimestamp": "2019-03-27T06:30:53.225-07:00",
+      "name": "alow-all",
+      "description": "",
+      "network": "https://www.googleapis.com/compute/v1/projects/strong-augury-224506/global/networks/default",
+      "priority": 1000,
+      "sourceRanges": [
+        "0.0.0.0/0"
+      ],
+      "allowed": [
+        {
+          "IPProtocol": "all"
+        }
+      ],
+      "direction": "INGRESS",
+      "logConfig": {
+        "enable": false
+      },
+      "disabled": false,
+      "selfLink": "https://www.googleapis.com/compute/v1/projects/strong-augury-224506/global/firewalls/allow-all"
+    }
+
+
+### Any Protocol: Conclusion
+
+In Azure, if we want to detect whether a port of a specific protocol is
+exposed, then we need to check the `protocol` value for the protocol
+name as well as `*`. For example, if we want to check if TCP port 22 is
+exposed, then we will check if `protocol` value is one of `TCP` and `*`.
+
+In GCP, if we want to perform a similar check, then we will check if
+`protocol` value is one of `tcp` or `all`.
+
+Perhaps we should normalize the protocol name to lowercase to remove any
+confusion regarding case-sensitivity. Also, we might want to normalize a
+`protocol` value of `*` in Azure to `all` to maintain parity with of
+GCP.
