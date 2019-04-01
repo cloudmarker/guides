@@ -15,15 +15,51 @@ rules will be captured in this document gradually in future.
 Contents
 --------
 
+* [Notation](#notation)
 * [Group vs. Rule](#group-vs-rule)
+  * [Group vs. Rule: Azure](#group-vs-rule-azure)
+  * [Group vs. Rule: GCP](#group-vs-rule-gcp)
+  * [Group vs. Rule: Conclusion](#group-vs-rule-conclusion)
 * [Multiple Ranges](#multiple-ranges)
+  * [Multiple Ranges: Azure](#multiple-ranges-azure)
+  * [Multiple Ranges: GCP](#multiple-ranges-gcp)
+  * [Multiple Ranges: Conclusion](#multiple-ranges-conclusion)
 * [Any Source](#any-source)
+  * [Any Source: Azure](#any-source-azure)
+    * [`source_address_prefix` set to `*`](#source_address_prefix-set-to-)
+    * [`source_address_prefix` set to CIDR](#source_address_prefix-set-to-cidr)
+    * [`source_address_prefixes` set to multiple CIDRs](#source_address_prefixes-set-to-multiple-cidrs)
+    * [`source_address_prefix` set to `Internet`](#source_address_prefix-set-to-internet)
+  * [Any Source: GCP](#any-source-gcp)
+  * [Any Source: Conclusion](#any-source-conclusion)
+* [Any Port](#any-port)
+  * [Any Port: Azure](#any-port-azure)
+    * [`destination_port_range` set to `*`](#destination_port_range-set-to-)
+    * [`destination_port_range` set to integer range](#destination_port_range-set-to-integer-range)
+    * [`destination_port_ranges` set to multiple integer ranges](#destination_port_ranges-set-to-multiple-integer-ranges)
+  * [Any Port: GCP](#any-port-gcp)
+    * [`ports` missing](#ports-missing)
+    * [`ports` set to port range](#ports-set-to-port-range)
+  * [Any Port: Conclusion](#any-port-conclusion)
+
+
+Notation
+--------
+
+There are two kinds of notations frequently used in this document. Here
+are two examples of such notation:
+
+  - *Source*, i.e., italicized "Source". This is a label picked verbatim
+    from the Azure portal.
+  - `Any`, i.e., "Any" written in a monospace font. This is either user
+    input entered or selected in the Azure portal or snippets of JSON
+    properties.
 
 
 Group vs. Rule
 --------------
 
-### Azure
+### Group vs. Rule: Azure
 
 Azure returns a JSON document for an entire network security group
 containing a list of one or more firewall rules.
@@ -247,7 +283,7 @@ For now, we would analyze the rules under `security_rules` (user-defined
 rules).
 
 
-### GCP
+### Group vs. Rule: GCP
 
 GCP returns each firewall rule as separate top-level JSON objects:
 
@@ -448,6 +484,9 @@ GCP returns each firewall rule as separate top-level JSON objects:
       }
     ]
 
+
+### Group vs. Rule: Conclusion
+
 Since GCP returns one JSON object per firewall rule while Azure groups
 firewall rules under a network security group, the Azure cloud plugin
 should generate multiple firewall rule records, one for each firewall
@@ -481,7 +520,7 @@ potentially weak:
   - Source address range: We need to understand how they look in the
     JSON data when multiple ranges are defined. We want to find those
     rules that have `*` or `0.0.0.0/0` or any other pattern that
-    indicates *all* source address ranges.
+    indicates all source address ranges.
 
   - Destination port range: We need to understand how they look in the
     JSON data when multiple ranges are defined. If a range includes
@@ -489,7 +528,7 @@ potentially weak:
     if they are allowed to all source address ranges.
 
 
-### Azure
+### Multiple Ranges: Azure
 
 Here is an example Azure security rule that allows multiple source
 address ranges to connect to multiple destination port ranges:
@@ -519,7 +558,7 @@ address ranges to connect to multiple destination port ranges:
     }
 
 
-### GCP
+### Multiple Ranges: GCP
 
 Here is a similar GCP rule that allows multiple source address ranges to
 connect to multiple destination port ranges:
@@ -575,15 +614,487 @@ For the record, the reason why the protocol is `*` in Azure is that
 while creating a security rule in Azure portal, the options for protocol
 is "Any", "TCP", and "UDP", with "Any" as the default. There is no such
 "Any" option while creating GCP firewall rule. GCP Console requires us
-to enter port ranges separately for TCP and UDP protocols.
+to enter port ranges separately for TCP and UDP protocols. There is an
+"Allow all" option in GCP that allows connections via all protocols and
+connections to all ports. Azure's "Any" option, on the other hand,
+allows connections to specified ports only via both protocols.
+
+
+### Multiple Ranges: Conclusion
+
+Detecting whether a sensitive port, say port 22 or port 3389, is exposed
+to the Internet we first need to check if these ports exist in the port
+ranges. For the minimum viable product, we can do a straightforward
+string match and see if `22` or `3389` explicitly exists in the list of
+port ranges.
+
+For a more complete implementation, we would also have to check if `22`
+or `3389` exists within a port range, e.g., `20-40` or `3000-4000`.
 
 
 Any Source
 ----------
 
-In the initial phase of this project, we are not worried about firewall
-rules with well defined source address ranges. But we are worried about
-a source address range that allows all source addresses to connect to
-the specified port ranges.
+In the initial phase of this project, we are only worried about source
+address ranges that allow all source addresses to connect to the
+specified port ranges.
 
-***Coming up!***
+
+### Any Source: Azure
+
+There are many different ways a specific port can be exposed to the
+entire Internet, so we divide this subsection into further subsections.
+
+
+#### `source_address_prefix set` to `*`
+
+When an inbound security rule is configured with `Any` chosen from the
+*Source* dropdown, we get a JSON object like this from Azure with
+`source_address_prefix` set to `*`:
+
+    {
+      "id": "/subscriptions/a8daa361-b951-46b5-8e9d-b375f2ffe9fd/resourceGroups/rg1/providers/Microsoft.Network/networkSecurityGroups/vm1-nsg/securityRules/Port_22",
+      "protocol": "*",
+      "source_port_range": "*",
+      "destination_port_range": "22",
+      "source_address_prefix": "*",
+      "source_address_prefixes": [],
+      "destination_address_prefix": "*",
+      "destination_address_prefixes": [],
+      "source_port_ranges": [],
+      "destination_port_ranges": [],
+      "access": "Allow",
+      "priority": 100,
+      "direction": "Inbound",
+      "provisioning_state": "Succeeded",
+      "name": "Port_22",
+      "etag": "W/\"c0acb806-e574-48c5-ad6a-d1f99f25d0ff\""
+    }
+
+
+#### `source_address_prefix` set to CIDR
+
+Azure portal did not allow us to configure a rule with source address
+range as `0.0.0.0/0`. An attempt to do so resulted in this error:
+`Invalid argument: 'Prefix'. Reason: The prefix must be between 1 and 32.`.
+
+The weakest rule we could configure in Azure portal using a single CIDR
+is `0.0.0.0/1`. When an inbound security rule is configured with `IP
+Addresses` chosen from the *Source* dropdown and *Source IP
+addresses/CIDR ranges* set to `0.0.0.0/1`, we get a JSON object like
+this with `source_address_prefix` set to the specified CIDR:
+
+    {
+      "id": "/subscriptions/a8daa361-b951-46b5-8e9d-b375f2ffe9fd/resourceGroups/rg1/providers/Microsoft.Network/networkSecurityGroups/vm1-nsg/securityRules/Port_22",
+      "protocol": "*",
+      "source_port_range": "*",
+      "destination_port_range": "22",
+      "source_address_prefix": "0.0.0.0/1",
+      "source_address_prefixes": [],
+      "destination_address_prefix": "*",
+      "destination_address_prefixes": [],
+      "source_port_ranges": [],
+      "destination_port_ranges": [],
+      "access": "Allow",
+      "priority": 100,
+      "direction": "Inbound",
+      "provisioning_state": "Succeeded",
+      "name": "Port_22",
+      "etag": "W/\"49c2141f-8788-409f-a8a6-59005f246067\""
+    }
+
+Although Azure portal does not allow `0.0.0.0/0` as a CIDR range for
+`source_address_prefix`, we should still check for it to be extra safe.
+It may be possible that there are other means (such as a direct REST API
+call) to set `source_address_prefix` to `0.0.0.0/0`.
+
+TODO: Check if we have any data that shows `source_address_prefix` set
+to `0.0.0.0/0`.
+
+
+#### `source_address_prefixes` set to multiple CIDRs
+
+Here is yet another way to allow the entire Internet to allow access to
+port 22. This security rule was created by choosing `IP Addresses` from
+the *Source* dropdown and setting *Source IP addresses/CIDR ranges* as
+`0.0.0.0/1,128.0.0.0/1`.
+
+    {
+      "id": "/subscriptions/a8daa361-b951-46b5-8e9d-b375f2ffe9fd/resourceGroups/rg1/providers/Microsoft.Network/networkSecurityGroups/vm1-nsg/securityRules/Port_22",
+      "protocol": "*",
+      "source_port_range": "*",
+      "destination_port_range": "22",
+      "source_address_prefixes": [
+        "0.0.0.0/1",
+        "128.0.0.0/1"
+      ],
+      "destination_address_prefix": "*",
+      "destination_address_prefixes": [],
+      "source_port_ranges": [],
+      "destination_port_ranges": [],
+      "access": "Allow",
+      "priority": 100,
+      "direction": "Inbound",
+      "provisioning_state": "Succeeded",
+      "name": "Port_22",
+      "etag": "W/\"7a502bb3-4f77-4c23-a5fa-1fda055b021d\""
+    }
+
+To take multiple CIDRs into account and finding whether their union is
+`0.0.0.0/0` should perhaps be outside the scope of MVP. Detecting this
+kind of corner cases (which could be exploited as clever workarounds to
+avoid detection) should perhaps be picked up as enhancements later.
+
+Until then, perhaps to be extra safe we should look for `0.0.0.0/0` as
+one of the entries in the `source_address_prefixes` list.
+
+
+#### `source_address_prefix` set to `Internet`
+
+Yet another way to expose a port to the Internet is to use a service
+tag. This security rule was created by choosing `Service Tag` from the
+*Source* dropdown menu and choosing `Internet` from the *Source service
+tag* dropdown menu.
+
+    {
+      "id": "/subscriptions/a8daa361-b951-46b5-8e9d-b375f2ffe9fd/resourceGroups/rg1/providers/Microsoft.Network/networkSecurityGroups/vm1-nsg/securityRules/Port_22",
+      "protocol": "*",
+      "source_port_range": "*",
+      "destination_port_range": "22",
+      "source_address_prefix": "Internet",
+      "source_address_prefixes": [],
+      "destination_address_prefix": "*",
+      "destination_address_prefixes": [],
+      "source_port_ranges": [],
+      "destination_port_ranges": [],
+      "access": "Allow",
+      "priority": 100,
+      "direction": "Inbound",
+      "provisioning_state": "Succeeded",
+      "name": "Port_22",
+      "etag": "W/\"a9ceecf4-eb4a-4fb8-b961-4cd9ab246e70\""
+    }
+
+
+### Any Source: GCP
+
+GCP contains this firewall rule to allow connectivity to port 22 from
+anywhere as one of the default rules:
+
+    {
+      "kind": "compute#firewall",
+      "id": "6979850877904078814",
+      "creationTimestamp": "2018-12-04T04:55:13.187-08:00",
+      "name": "default-allow-ssh",
+      "description": "Allow SSH from anywhere",
+      "network": "https://www.googleapis.com/compute/v1/projects/strong-augury-224506/global/networks/default",
+      "priority": 65534,
+      "sourceRanges": [
+        "0.0.0.0/0"
+      ],
+      "allowed": [
+        {
+          "IPProtocol": "tcp",
+          "ports": [
+            "22"
+          ]
+        }
+      ],
+      "direction": "INGRESS",
+      "logConfig": {
+        "enable": false
+      },
+      "disabled": false,
+      "selfLink": "https://www.googleapis.com/compute/v1/projects/strong-augury-224506/global/firewalls/default-allow-ssh"
+    }
+
+Here is a how a custom firewall rule to allow connectivity to TCP port
+8000 with *Source IP ranges* as `0.0.0.0/0` looks like:
+
+    {
+      "kind": "compute#firewall",
+      "id": "4387657442666205482",
+      "creationTimestamp": "2019-03-26T11:30:29.863-07:00",
+      "name": "allow-8000",
+      "description": "",
+      "network": "https://www.googleapis.com/compute/v1/projects/strong-augury-224506/global/networks/default",
+      "priority": 1000,
+      "sourceRanges": [
+        "0.0.0.0/0"
+      ],
+      "allowed": [
+        {
+          "IPProtocol": "tcp",
+          "ports": [
+            "8000"
+          ]
+        }
+      ],
+      "direction": "INGRESS",
+      "logConfig": {
+        "enable": false
+      },
+      "disabled": false,
+      "selfLink": "https://www.googleapis.com/compute/v1/projects/strong-augury-224506/global/firewalls/allow-8000"
+    }
+
+
+### Any Source: Conclusion
+
+Once we have identified that a critical port such as `22` or `3389` is
+exposed as discussed in the previous section, we need to identify if it
+is exposed to the entire Internet.
+
+In this section, we learn that checking this is not straightforward in
+case of Azure. There are multiple formats to consider in Azure:
+
+  - `"source_address_prefix": "*"`
+  - `"source_address_prefix": "0.0.0.0/0"`
+  - `"source_address_prefix": "Internet"`
+  - `"source_address_prefixes"` list contains `0.0.0.0/0`
+
+With GCP, it is straightforward due to its simple UI and simple JSON
+structure. We only need to check if `0.0.0.0/0` exists in
+`sourceRanges`.
+
+One way to simplify this in Azure could be to normalize the source
+ranges in `source_address_prefix` and `source_address_prefixes` to a
+common format, e.g., normalize both `*` and `Internet` to `0.0.0.0/0`
+and let the source ranges in the common (`com`) bucket be always a list
+even if a single address in `source_address_prefix` is available.
+
+
+Any Port
+--------
+
+### Any Port: Azure
+
+In this section, we will see a couple of ways we can allow connections
+to all ports.
+
+
+#### `destination_port_range` set to `*`
+
+Here is an example where an inbound security rule is created with
+*Destination port ranges* set to `*`.
+
+    {
+      "id": "/subscriptions/a8daa361-b951-46b5-8e9d-b375f2ffe9fd/resourceGroups/rg1/providers/Microsoft.Network/networkSecurityGroups/vm1-nsg/securityRules/Port_All",
+      "protocol": "*",
+      "source_port_range": "*",
+      "destination_port_range": "*",
+      "source_address_prefix": "*",
+      "source_address_prefixes": [],
+      "destination_address_prefix": "*",
+      "destination_address_prefixes": [],
+      "source_port_ranges": [],
+      "destination_port_ranges": [],
+      "access": "Allow",
+      "priority": 100,
+      "direction": "Inbound",
+      "provisioning_state": "Succeeded",
+      "name": "Port_All",
+      "etag": "W/\"2873cc0e-f41e-4c94-a773-8b0982d0db55\""
+    }
+
+
+#### `destination_port_range` set to integer range
+
+Another way to allow access to all ports is to set *Destination port
+ranges* to `0-65535`.
+
+    {
+      "id": "/subscriptions/a8daa361-b951-46b5-8e9d-b375f2ffe9fd/resourceGroups/rg1/providers/Microsoft.Network/networkSecurityGroups/vm1-nsg/securityRules/Port_All",
+      "protocol": "*",
+      "source_port_range": "*",
+      "destination_port_range": "0-65535",
+      "source_address_prefix": "*",
+      "source_address_prefixes": [],
+      "destination_address_prefix": "*",
+      "destination_address_prefixes": [],
+      "source_port_ranges": [],
+      "destination_port_ranges": [],
+      "access": "Allow",
+      "priority": 100,
+      "direction": "Inbound",
+      "provisioning_state": "Succeeded",
+      "name": "Port_All",
+      "etag": "W/\"50b4dbec-2e8e-4675-b050-f87017d5118c\""
+    }
+
+
+#### `destination_port_ranges` set to multiple integer ranges
+
+If multiple port ranges are specified, they occur as a list value of
+the `destination_port_ranges` key as opposed to a single scalar value of
+the `destination_port_range` key. Note that this is very similar to
+`source_address_prefix` and `source_address_prefixes` that we saw
+earlier.
+
+For example, this security rule was created by setting *Destination port
+ranges* to `0-1024,1025-50000,50001-65535`.
+
+    {
+      "id": "/subscriptions/a8daa361-b951-46b5-8e9d-b375f2ffe9fd/resourceGroups/rg1/providers/Microsoft.Network/networkSecurityGroups/vm1-nsg/securityRules/Port_All",
+      "protocol": "*",
+      "source_port_range": "*",
+      "source_address_prefix": "*",
+      "source_address_prefixes": [],
+      "destination_address_prefix": "*",
+      "destination_address_prefixes": [],
+      "source_port_ranges": [],
+      "destination_port_ranges": [
+        "0-1024",
+        "1025-50000",
+        "50001-65535"
+      ],
+      "access": "Allow",
+      "priority": 110,
+      "direction": "Inbound",
+      "provisioning_state": "Succeeded",
+      "name": "Port_All",
+      "etag": "W/\"7f844086-b511-4fbb-b14e-67bb6d1635a6\""
+    }
+
+
+An interesting thing worth figuring out was if we could create a rule
+with *Destination port ranges* as something like `*,8080` to know if we
+need to handle formats like these as well. An attempt to create a rule
+like this failed with this error: `Error: Security rule parameter
+DestinationPortRanges for rule with Id vm1-nsg/Port_All_8080 cannot
+specify a '*'`.
+
+
+### Any Port: GCP
+
+#### `ports` missing
+
+Here is an example of a firewall rule created by setting *Protocol and
+ports* to `Allow all`.
+
+    {
+      "kind": "compute#firewall",
+      "id": "3768982350163559256",
+      "creationTimestamp": "2019-03-26T21:36:07.919-07:00",
+      "name": "allow-all",
+      "description": "",
+      "network": "https://www.googleapis.com/compute/v1/projects/strong-augury-224506/global/networks/default",
+      "priority": 1000,
+      "sourceRanges": [
+        "0.0.0.0/0"
+      ],
+      "allowed": [
+        {
+          "IPProtocol": "all"
+        }
+      ],
+      "direction": "INGRESS",
+      "logConfig": {
+        "enable": false
+      },
+      "disabled": false,
+      "selfLink": "https://www.googleapis.com/compute/v1/projects/strong-augury-224506/global/firewalls/allow-all"
+    }
+
+Here is an example of another firewall rule created by setting *Protocol
+and ports* to `Specified protocols and ports` with only `tcp` checked
+and its value set to `all`.
+
+    {
+      "kind": "compute#firewall",
+      "id": "4743040530138971883",
+      "creationTimestamp": "2019-03-26T21:45:56.996-07:00",
+      "name": "allow-tcp-all",
+      "description": "",
+      "network": "https://www.googleapis.com/compute/v1/projects/strong-augury-224506/global/networks/default",
+      "priority": 1000,
+      "sourceRanges": [
+        "0.0.0.0/0"
+      ],
+      "allowed": [
+        {
+          "IPProtocol": "tcp"
+        }
+      ],
+      "direction": "INGRESS",
+      "logConfig": {
+        "enable": false
+      },
+      "disabled": false,
+      "selfLink": "https://www.googleapis.com/compute/v1/projects/strong-augury-224506/global/firewalls/allow-tcp-all"
+    }
+
+We see in both examples above that the absence of `ports` key within an
+item under `allowed` key means access to all ports is allowed. To
+confirm that `ports` key exist otherwise, see the next example.
+
+
+#### `ports` set to port range
+
+Here is another example that allows access to all ports by setting the
+port range for TCP to `0-65535`
+
+    {
+      "kind": "compute#firewall",
+      "id": "1643439697213955467",
+      "creationTimestamp": "2019-03-27T00:16:52.999-07:00",
+      "name": "allow-0-65535",
+      "description": "",
+      "network": "https://www.googleapis.com/compute/v1/projects/strong-augury-224506/global/networks/default",
+      "priority": 1000,
+      "sourceRanges": [
+        "0.0.0.0/0"
+      ],
+      "allowed": [
+        {
+          "IPProtocol": "tcp",
+          "ports": [
+            "0-65535"
+          ]
+        }
+      ],
+      "direction": "INGRESS",
+      "logConfig": {
+        "enable": false
+      },
+      "disabled": false,
+      "selfLink": "https://www.googleapis.com/compute/v1/projects/strong-augury-224506/global/firewalls/allow-0-65535"
+    }
+
+If the `ports` key exist within an item in the list value of `allowed`
+key, then we need to see if the port we care about is present in it.
+
+Specifying a port range like `8000,all,9000-9010` in the GCP console
+fails with this error: `'all' has to be the only value provided`.
+
+
+### Any Port: Conclusion
+
+Normally, we would not care that a firewall rule exposes all ports. We
+would only care whether specific sensitive ports like 22, 3389, etc. are
+exposed. But still the understanding of how the notion of all ports is
+denoted in the data is important because if all ports are exposed, then
+the ports we care about such as 22 or 3389 are also exposed.
+
+In Azure, we need to consider the following special formats:
+
+  - `"destination_port_range": "*"` (allows all ports)
+  - `"destination_port_range"` is set to the port we care about.
+  - `"destination_port_range"` is a port range that contains the port we
+    care about.
+  - `"destination_port_ranges"` list contains the port we care about.
+  - `"destination_port_ranges"` list contains a port range that contains
+    the port we care about.
+
+In GCP, we need to consider the following cases:
+
+  - `"allowed"` list contains an object literal with the `"ports"` key
+    missing (thus allowing all ports).
+  - `"allowed"` list contains an object literal that contains the port
+    we care about.
+  - `"allowed"` list contains an object literal that contains a port
+    range that contains the port we care about.
+
+One way to simplify all these various scenarios is to use a list of
+port/port-ranges as common notation. So `*` would be normalized to
+`0-65535`. A missing `"ports"` key is also normalized to `0-65535`.
