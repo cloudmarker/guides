@@ -6,6 +6,7 @@ Community Guides
 ----------------
 
 * [Core Developer Guidelines](core-dev-guide.md)
+* [Release Checklist](release-checklist.md)
 
 
 Technical Guides
